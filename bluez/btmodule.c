@@ -874,6 +874,7 @@ sock_bind(PySocketSockObject *s, PyObject *addro)
 	Py_BEGIN_ALLOW_THREADS
 	res = bind(s->sock_fd, &addr, addrlen);
 	Py_END_ALLOW_THREADS
+
 	if (res < 0)
 		return s->errorhandler();
 	Py_INCREF(Py_None);
@@ -1789,7 +1790,7 @@ bt_htobs(PyObject *self, PyObject *args)
 	if (!PyArg_ParseTuple(args, "i:htobs", &x1)) {
 		return NULL;
 	}
-	x2 = (int)htobs((short)x1);
+	x2 = (unsigned int)htobs((unsigned short)x1);
 	return PyInt_FromLong(x2);
 }
 
