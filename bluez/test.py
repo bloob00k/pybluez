@@ -401,33 +401,74 @@ class mgmt_ev_device_found:
         self.rssi, self.flags, self.eir_len = struct.unpack('=bIH', pkt[7:14])
         self.eir_data = pkt[14:]
 
+    def _find_pdu(self, pdu_findtype, pdu_handler):
+        results = []
+        parsed = 0
+
+        while parsed + 2 < self.eir_len:
+            pdu_len = struct.unpack('=B', eir_data[parsed])[0]
+            if pdu_len == 0:
+                break
+        
+            pdu_type = struct.unpack('=B', eir_data[parsed + 1])[0]
+
+            if pdu_type == pdu_find_type:
+                results += [pdu_handler(eir_data[parsed + 2:parsed + 2 + pdu_len])]
+
+            parsed = parsed + pdu_len + 1
+
+        return manu_pdus
+
+    def get_manufacturer_data(self):
+        # There can be more than one manufacturer PDU in a single advertisement - bluemaestro tempo has two
+        manu_pdus = []
+        parsed = 0
+
+        while parsed + 2 < self.eir_len:
+            pdu_len = struct.unpack('=B', eir_data[parsed])[0]
+            if pdu_len == 0:
+                break
+        
+            pdu_type = struct.unpack('=B', eir_data[parsed + 1])[0]
+
+            if pdu_type == EIR_TYPE_MANUFACTURER_DATA:
+                id, data = struct.unpack('=Hs', eir_data[parsed + 2:parsed + 2 + pdu_len])
+                manu_pdus += {
+                    'id': id,
+                    'data' : data
+                    }
+
+            parsed = parsed + pdu_len + 1
+
+        return manu_pdus
+
+    def _manufacturer_data_handler(pdu_data):
+        id, data = struct.unpack('=Hs', pdu_data)
+        return {
+            'id': id,
+            'data' : data
+            }
+
+    def get_manufacturer_data2(self):
+        # There can be more than one manufacturer PDU in a single advertisement - bluemaestro tempo has two
+        return self._find_pdu(EIR_TYPE_MANUFACTURER_DATA, _manufacturer_data_handler)
+
+    def _name_handler(pdu_data):
+        return pdu_data
+
+    def get_name(self):
+        # Should look for EIR_TYPE_COMPLETE_NAME as well
+        return self._find_pdu(EIR_TYPE_SHORT_NAME, _name_handler)
+
 class mgmt_ev_cmd_status:
     def __init__(self, pkt):
         self.opcode, self.status = struct.unpack('=Hb', pkt[0:3])
 
 '''
-if (discovery) {
-char addr[18], *name;
-                unsigned manuf;
-
-                ba2str(&ev->addr.bdaddr, addr);
-                print("hci%u dev_found: %s type %s rssi %d "
-                "flags 0x%04x ", index, addr,
-typestr(ev->addr.type), ev->rssi, flags);
-
         if (ev->addr.type != BDADDR_BREDR)
                         print("AD flags 0x%02x ",
 eir_get_flags(ev->eir, eir_len));
 
-name = eir_get_name(ev->eir, eir_len);
-                if (name)
-                        print("name %s", name);
-else
-                        print("eir_len %u", eir_len);
-
-                free(name);
-
-                manuf = eir_get_manu(ev->eir, eir_len);
                 if (manuf == 0x0133)
                   dump_tempo(ev->eir, eir_len);
         }
@@ -456,9 +497,33 @@ def parse_eir_data(eir_data, eir_len):
         else:
             print("PDU type %.2X length %d") % (pdu_type, pdu_len)
         
-
         parsed = parsed + pdu_len + 1
 
+
+class tempo_data:
+    def __init__(self, data):
+        self.version = struct.unpack('=B', data[0])[0]
+        if self.version != 15:
+            return  #Should throw an exception
+
+        self.battery, self.time_interval, self.stored_logcount, self.temp, self.humidity, self.dewpoint, self.mode, self.breach_count = struct.unpack('>BHHHHHBB', data[1:])
+        self.battery = self.battery / 255
+        self.temp /= 10
+        self.humidity /= 10
+    
+    def pdu2(self, data):
+        (self.temp_high,
+         self.humidity_high,
+         self.temp_low, 
+         self.humidity_low,
+         self.temp_24high,
+         self.humidity_24_high,
+         self.temp_24_low,
+         self.humidity_24_low) = struct.unpack('>HHHHHHHH', data)
+     
+        
+        
+        
 
 def main():
     sock = mgmt_open()
@@ -483,6 +548,8 @@ def main():
             event, data = mgmt_get_event(sock)
             while event == MGMT_EV_DEVICE_FOUND:
                 found_data = mgmt_ev_device_found(data)
+                mfg_data = found_data.get_manufacturer_data()
+#                for 
                 print("rssi: %d, data len %d") % (found_data.rssi, found_data.eir_len)
                 print("address %s") % ba2str(found_data.addr_info)
                 parse_eir_data(found_data.eir_data, found_data.eir_len)
